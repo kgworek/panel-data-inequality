@@ -1,0 +1,276 @@
+---
+title: "Panel Data Analysis of Income Inequality"
+author: "Karolina"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+    theme: cosmo
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+```
+
+# Libraries
+
+```{r}
+library(plm)
+library(lmtest)
+library(car)
+library(corrplot)
+library(stargazer)
+```
+
+# Load Data
+
+```{r}
+dane_do_modelu <- read.csv(
+  "dane/dane_do_modelu.csv",
+  header = TRUE,
+  sep = ";",
+  dec = ","
+)
+```
+
+### Variables description
+
+- **gini** – Gini coefficient (income inequality)  
+- **inflacja** – inflation rate  
+- **wz_real_PKB** – real GDP growth  
+- **wyd_rzad_PKB** – government expenditure (% GDP)  
+- **bezrobocie** – unemployment rate  
+- **globalizacja** – globalization index  
+- **technologia** – technological development indicator  
+
+# Exploratory Data Analysis
+
+## Summary statistics
+
+```{r}
+summary(dane_do_modelu)
+```
+
+## Missing values
+
+```{r}
+colSums(is.na(dane_do_modelu))
+```
+
+## Distribution of Gini coefficient
+
+```{r, fig.width=6, fig.height=4}
+hist(dane_do_modelu$gini,
+     main = "Distribution of Gini coefficient",
+     xlab = "Gini",
+     col = "lightblue")
+```
+
+# Panel Data Preparation
+
+```{r}
+dane_do_modelu_p <- pdata.frame(dane_do_modelu, index = c("country", "year"))
+
+class(dane_do_modelu_p)
+```
+
+# Panel Data Models
+
+## Fixed Effects Model
+
+```{r}
+model_fe <- plm(
+  gini ~ inflacja + I(inflacja^2) + wz_real_PKB + wyd_rzad_PKB + globalizacja,
+  data = dane_do_modelu_p,
+  model = "within",
+  effect = "time"
+)
+
+summary(model_fe)
+```
+
+## Fixed Effects Model with Technology
+
+```{r}
+model_fe_tech <- plm(
+  gini ~ inflacja + I(inflacja^2) + wz_real_PKB + wyd_rzad_PKB + globalizacja + technologia,
+  data = dane_do_modelu_p,
+  model = "within",
+  effect = "time"
+)
+
+summary(model_fe_tech)
+```
+### Interpretation of results
+The results suggest a nonlinear relationship between inflation and inequality. The linear inflation term is not statistically significant, while the squared term is positive and significant (p < 0.05). This may indicate that higher levels of inflation are associated with increasing inequality.
+
+Real GDP growth has a negative and statistically significant coefficient, suggesting that higher economic growth is associated with lower income inequality.
+
+Government expenditure as a percentage of GDP is also negatively related to inequality and highly statistically significant. This may suggest that higher public spending contributes to reducing income disparities.
+
+The globalization index has a negative and statistically significant effect on inequality, indicating that higher globalization levels may be associated with lower inequality in the analyzed countries.
+
+The technology variable is not statistically significant (p > 0.05), suggesting that technological development does not have a clear direct effect on income inequality in this model specification.
+
+The model explains approximately 32% of the variation in the dependent variable (R² ≈ 0.32), which is a moderate explanatory power typical for macroeconomic panel models.
+
+## Random Effects Model
+
+```{r}
+model_re <- plm(
+  gini ~ inflacja + I(inflacja^2) + wz_real_PKB + wyd_rzad_PKB + globalizacja,
+  data = dane_do_modelu_p,
+  model = "random",
+  random.method = "walhus"
+)
+
+summary(model_re)
+```
+### Interpretation of results
+
+The random effects model assumes that unobserved country-specific effects are not correlated with the explanatory variables.
+
+The results indicate that inflation has a negative and statistically significant relationship with income inequality (p < 0.05). This suggests that higher inflation is associated with lower levels of inequality in the analyzed sample.
+
+The squared inflation term is not statistically significant, which suggests that the nonlinear effect observed in the fixed effects specification may not be robust across model assumptions.
+
+The coefficient for globalization is negative and statistically significant (p < 0.05), indicating that higher levels of globalization are associated with lower income inequality.
+
+Other variables such as GDP growth and government expenditure are not statistically significant in this specification, which may suggest that their effects are sensitive to model assumptions or that the random effects model does not fully capture the underlying heterogeneity in the data.
+
+The explanatory power of the model is relatively low (R² ≈ 0.05), indicating that the included variables explain only a small proportion of the variation in income inequality in this specification.
+
+## Pooled OLS Model
+
+```{r}
+model_ols <- plm(
+  gini ~ inflacja + I(inflacja^2) + wz_real_PKB + wyd_rzad_PKB + globalizacja,
+  data = dane_do_modelu_p,
+  model = "pooling"
+)
+
+summary(model_ols)
+```
+### Interpretation of results
+
+The pooled OLS model estimates the relationship between macroeconomic variables and income inequality without accounting for country-specific or time-specific effects.
+
+The results suggest that inflation has a nonlinear relationship with income inequality. The linear term for inflation is negative and statistically significant (p < 0.05), while the squared term is positive and also significant. This indicates a potential nonlinear effect of inflation on inequality.
+
+Real GDP growth has a negative and statistically significant coefficient, suggesting that higher economic growth is associated with lower income inequality.
+
+Government expenditure as a percentage of GDP is also negatively related to inequality and highly statistically significant. This may indicate that greater public spending contributes to reducing income disparities.
+
+The globalization index has a negative and statistically significant effect on inequality, suggesting that higher levels of globalization may be associated with lower inequality in the analyzed countries.
+
+The model explains approximately 29% of the variation in the dependent variable (R² ≈ 0.29), indicating a moderate explanatory power.
+
+# Diagnostic Tests
+
+## Breusch-Pagan Test
+
+```{r}
+bptest(model_re, studentize = FALSE)
+```
+The p-value of the test is approximately 0.10, which means that at the 5% significance level there is no strong evidence to reject the null hypothesis. However, the result is relatively close to the threshold, which may suggest the presence of some panel effects.
+
+Therefore, it is still useful to consider panel models such as fixed effects or random effects for further analysis.
+
+## Hausman Test
+
+```{r}
+phtest(model_fe, model_re)
+```
+The p-value of the test is extremely small (p < 0.001), which leads to the rejection of the null hypothesis. This indicates that the random effects estimator is inconsistent.
+
+Therefore, the fixed effects model is the preferred specification for this analysis.
+
+## Wooldridge Test for Autocorrelation
+
+```{r}
+pbgtest(model_ols, order = 1, type = "F")
+```
+The very small p-value (p < 0.001) indicates strong evidence of serial correlation in the residuals. This suggests that the error terms are correlated over time.
+
+The presence of autocorrelation may affect the efficiency of the estimators and suggests that robust standard errors may be required.
+
+
+## Robust Standard Errors
+
+```{r}
+coeftest(model_fe, vcov = vcovHC(model_fe, method = "arellano", type = "HC1", cluster = "group"))
+```
+### Interpretation
+
+Since the Wooldridge test indicated the presence of serial correlation, robust standard errors were applied to the fixed effects model.
+
+After correcting the standard errors, several variables remain statistically significant. The squared inflation term is positive and statistically significant (p < 0.05), suggesting a nonlinear relationship between inflation and income inequality.
+
+Real GDP growth has a negative and statistically significant effect, indicating that higher economic growth is associated with lower inequality.
+
+Government expenditure as a percentage of GDP remains highly statistically significant and negatively related to inequality, suggesting that greater public spending may contribute to reducing income disparities.
+
+The globalization index also remains statistically significant and negatively associated with inequality.
+
+The linear inflation term is no longer statistically significant after applying robust standard errors, which indicates that its effect is not robust to corrections for serial correlation.
+
+# Influence Analysis
+
+```{r, fig.width=6, fig.height=4}
+model_lm <- lm(
+  gini ~ inflacja + I(inflacja^2) + wz_real_PKB + wyd_rzad_PKB + globalizacja,
+  data = dane_do_modelu
+)
+
+influencePlot(model_lm,
+              id.method = "identify",
+              main = "Influence Plot")
+```
+
+# Correlation Analysis
+
+```{r, fig.width=6, fig.height=5}
+corr_matrix <- cor(
+  dane_do_modelu[, c("inflacja",
+                     "wz_real_PKB",
+                     "wyd_rzad_PKB",
+                     "bezrobocie",
+                     "globalizacja")],
+  method = "pearson"
+)
+
+corrplot(corr_matrix, method = "color", type = "full")
+```
+
+# Model Comparison
+
+```{r, results='asis'}
+stargazer(model_fe,
+          model_re,
+          model_ols,
+          type = "html",
+          title = "Comparison of Panel Data Models")
+```
+
+
+### Model selection
+
+The Hausman test strongly rejects the random effects specification (p < 0.001), indicating that the individual effects are correlated with the explanatory variables. Therefore, the fixed effects model is preferred.
+
+Although the Breusch–Pagan test does not strongly reject the pooled model at the 5% significance level, the Hausman test clearly supports the fixed effects specification.
+
+Additionally, the Wooldridge test indicates the presence of serial correlation in the residuals. To address this issue, robust standard errors were applied to the fixed effects model.
+
+Therefore, the final specification used for interpretation is the fixed effects model with robust standard errors.
+
+# Conclusions
+
+The analysis examines the relationship between inflation and income inequality using panel data models.  
+
+The preferred fixed effects model suggests that higher GDP growth, greater government expenditure, and stronger globalization are associated with lower levels of income inequality. 
+
+At the same time, the significant squared inflation term indicates a nonlinear relationship between inflation and inequality, suggesting that the impact of inflation may increase at higher inflation levels.
